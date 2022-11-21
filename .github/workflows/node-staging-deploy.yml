@@ -1,0 +1,82 @@
+name: Staging/Deploy
+
+concurrency:
+  group: staging
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      deploy_url:
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ inputs.deploy_url }}
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh/
+          echo "$SSH_KEY" > ~/.ssh/staging.key
+          chmod 600 ~/.ssh/staging.key
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat >>~/.ssh/config <<END
+          Host deploy_staging
+            HostName $SSH_HOST
+            User $SSH_USER
+            Port $SSH_PORT
+            IdentityFile ~/.ssh/staging.key
+            IdentitiesOnly yes
+            StrictHostKeyChecking no
+          END
+        env:
+          SSH_USER: ${{ secrets.BALOO_SSH_USER }}
+          SSH_KEY: ${{ secrets.BALOO_SSH_KEY }}
+          SSH_HOST: ${{ secrets.BALOO_SSH_HOST }}
+          SSH_PORT: ${{ secrets.BALOO_SSH_PORT }}
+          KNOWN_HOSTS: ${{ secrets.BALOO_KNOWN_HOSTS }}
+
+      - uses: actions/checkout@v3
+
+      - name: 🪢 Setup node
+        uses: actions/setup-node@v3
+
+      - name: ⚒️ Install necessaire tools
+        run: npm i -g pm2
+
+      - uses: altinukshini/deployment-action@releases/v1
+        name: 🐙 Create GitHub deployment
+        id: deployment
+        with:
+          token: "${{ github.token }}"
+          target_url: "${{ inputs.deploy_url }}"
+          environment: staging
+
+      - name: 📦 Setup repo
+        run: pm2 deploy ecosystem.config.js baloo setup
+        continue-on-error: true
+
+      - name: 🚀 Deploy
+        run: pm2 deploy ecosystem.config.js baloo update --force
+
+      - name: Update deployment status (success)
+        if: success()
+        uses: altinukshini/deployment-status@releases/v1
+        with:
+          token: "${{ github.token }}"
+          target_url: "${{ inputs.deploy_url }}"
+          state: "success"
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+
+      - name: Update deployment status (failure)
+        if: failure()
+        uses: altinukshini/deployment-status@releases/v1
+        with:
+          token: "${{ github.token }}"
+          target_url: "${{ inputs.deploy_url }}"
+          state: "failure"
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
