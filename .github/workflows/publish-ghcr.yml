@@ -2,10 +2,14 @@ name: Reusable workflow for publishing docker image to GHCR
 
 on:
   workflow_call:
+    inputs:
+      image_name:
+        required: false
+        type: string
+        description: 'Override the image name (defaults to repository)'
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
@@ -31,7 +35,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ inputs.image_name || github.repository }}
           flavor: |
             latest=false
           tags: |
